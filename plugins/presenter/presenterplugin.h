@@ -24,13 +24,13 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <QCursor>
 
 #include <core/kdeconnectplugin.h>
 
 #define PACKET_TYPE_PRESENTER QStringLiteral("kdeconnect.presenter")
 
 class PresenterView;
-
 class Q_DECL_EXPORT PresenterPlugin
     : public KdeConnectPlugin
 {
@@ -45,9 +45,14 @@ public:
     void connected() override {}
 
 private:
-    QPointer<PresenterView> m_view;
     QTimer* m_timer;
+    QCursor m_cursor;
+    int height, width;
+    int isProjecteurEnable;
     float m_xPos, m_yPos;
+
+    void enableProjecteur(void);
+    void disableProjecteur(void);
 };
 
 #endif

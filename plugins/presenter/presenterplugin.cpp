@@ -34,80 +34,69 @@
 #include <core/device.h>
 #include <core/daemon.h>
 #include <QScreen>
+#include <QRect>
+#include <QGuiApplication>
+#include <QProcess>
+#include <QCursor>
 
 K_PLUGIN_CLASS_WITH_JSON(PresenterPlugin, "kdeconnect_presenter.json")
 
 Q_LOGGING_CATEGORY(KDECONNECT_PLUGIN_PRESENT, "kdeconnect.plugin.presenter")
 
-class PresenterView : public QQuickView
-{
-public:
-    PresenterView() {
-        Qt::WindowFlags windowFlags = Qt::WindowFlags(Qt::WA_TranslucentBackground | Qt::WindowDoesNotAcceptFocus
-                                    | Qt::WindowFullScreen | Qt::WindowStaysOnTopHint
-                                    | Qt::FramelessWindowHint | Qt::Tool);
-#ifdef Q_OS_WIN
-        windowFlags |= Qt::WindowTransparentForInput;
-#endif
-        setFlags(windowFlags);
-        setClearBeforeRendering(true);
-        setColor(QColor(Qt::transparent));
-
-        setResizeMode(QQuickView::SizeViewToRootObject);
-        setSource(QUrl(QStringLiteral("qrc:/presenter/Presenter.qml")));
-
-        const auto ourErrors = errors();
-        for (const auto &error : ourErrors) {
-            qCWarning(KDECONNECT_PLUGIN_PRESENT) << "error" << error.description() << error.url() << error.line() << error.column();
-        }
-    }
-};
-
 PresenterPlugin::PresenterPlugin(QObject* parent, const QVariantList& args)
     : KdeConnectPlugin(parent, args)
-    , m_view(nullptr)
     , m_timer(new QTimer(this))
 {
-    m_timer->setInterval(500);
+    m_timer->setInterval(100);
     m_timer->setSingleShot(true);
+
+    QScreen *screen = QGuiApplication::primaryScreen();
+    QRect screenGeometry = screen->geometry();
+    this->height = screenGeometry.height();
+    this->width = screenGeometry.width();
+    this->isProjecteurEnable = 0;
 }
 
 PresenterPlugin::~PresenterPlugin()
 {
 }
 
+void PresenterPlugin::enableProjecteur(void)
+{
+    this->isProjecteurEnable = 1;
+    QProcess::execute(QString::fromLocal8Bit("projecteur -c spot=on"));
+}
+
+void PresenterPlugin::disableProjecteur(void)
+{
+    this->isProjecteurEnable = 0;
+    QProcess::execute(QString::fromLocal8Bit("projecteur -c spot=off"));
+}
+
 bool PresenterPlugin::receivePacket(const NetworkPacket& np)
 {
     if (np.get<bool>(QStringLiteral("stop"), false)) {
-        delete m_view;
-        m_view = nullptr;
         return true;
     }
 
-    if (!m_view) {
-        m_view = new PresenterView;
+    if (!this->isProjecteurEnable) {
         m_xPos = 0.5f;
         m_yPos = 0.5f;
-        m_view->showFullScreen();
-        connect(this, &QObject::destroyed, m_view, &QObject::deleteLater);
-        connect(m_timer, &QTimer::timeout, m_view, &QObject::deleteLater);
+        connect(m_timer, &QTimer::timeout,
+                this, QOverload<>::of(&PresenterPlugin::disableProjecteur));
+        PresenterPlugin::enableProjecteur();
     }
 
-    QSize screenSize = m_view->screen()->size();
-    float ratio = float(screenSize.width())/screenSize.height();
-
+    float ratio = this->width / this->height;
     m_xPos += np.get<float>(QStringLiteral("dx"));
     m_yPos += np.get<float>(QStringLiteral("dy")) * ratio;
     m_xPos = qBound(0.f, m_xPos, 1.f);
     m_yPos = qBound(0.f, m_yPos, 1.f);
 
     m_timer->start();
+    m_cursor.setPos(m_xPos * this->width, m_yPos * this->height);
 
-    QQuickItem* object = m_view->rootObject();
-    object->setProperty("xPos", m_xPos);
-    object->setProperty("yPos", m_yPos);
     return true;
 }
 
 #include "presenterplugin.moc"
-
